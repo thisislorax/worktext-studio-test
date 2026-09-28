@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Comments Backend Test</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body style="font-family: sans-serif; padding: 20px;">
+  <h1>Comments Backend Test</h1>
+
+  <!-- Sign in with Google button -->
+  <div id="g_id_onload"
+       data-client_id="483380632303-00dmlah61gfo683b11daelmcsbofejm7.apps.googleusercontent.com"
+       data-callback="onSignIn"></div>
+  <div class="g_id_signin"></div>
+  <p id="who">Not signed in</p>
+
+  <hr>
+  <button onclick="listComments()">List comments for MK-U1-C1-L001</button>
+  <br><br>
+  <input id="text" placeholder="Type a comment" size="40">
+  <button onclick="saveComment()">Save comment</button>
+
+  <h3>Answer from the backend:</h3>
+  <pre id="output" style="background:#f4f4f4; padding:10px;"></pre>
+
+  <script>
+    const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbxB4InD2pxpVzv4Mo6thjmW3BWDIVDm6ThrgxhHb5S-kOgtwIUnSFuQ5MmkLU5Fhrn_rg/exec';
+    let idToken = null;
+
+    // Google calls this after you sign in, and hands over the ID card
+    function onSignIn(response) {
+      idToken = response.credential;
+      document.getElementById('who').textContent = 'Signed in ✅';
+    }
+
+    // Sends a request to the backend, with the ID card attached
+    async function callBackend(payload) {
+      payload.idToken = idToken;
+      const res = await fetch(BACKEND_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      return res.json();
+    }
+
+    async function listComments() {
+      show(await callBackend({ action: 'list', lessonCode: 'MK-U1-C1-L001' }));
+    }
+
+    async function saveComment() {
+      const text = document.getElementById('text').value;
+      show(await callBackend({
+        action: 'save',
+        data: { lessonCode: 'MK-U1-C1-L001', revision: 'R0', text: text }
+      }));
+    }
+
+    function show(answer) {
+      document.getElementById('output').textContent = JSON.stringify(answer, null, 2);
+    }
+  </script>
+</body>
+</html>
