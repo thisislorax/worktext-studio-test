@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+      <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1142,7 +1143,7 @@
       </div>
       <div class="toolbar-logo-text">
         <span>WORKTEXT</span>
-        <span>STUDIO</span>
+        <span>STUDIO · TEST</span>
       </div>
     </div>
         <div class="toolbar-center">
@@ -1214,6 +1215,13 @@
     <span class="status-pill" id="status-pill">
       <span class="dot"></span>No file loaded
     </span>
+        <!-- TEST ONLY: Sign in with Google -->
+    <div id="g_id_onload"
+         data-client_id="483380632303-00dmlah61gfo683b11daelmcsbofejm7.apps.googleusercontent.com"
+         data-callback="wtOnSignIn"
+         data-auto_prompt="false"></div>
+    <div class="g_id_signin" data-type="standard" data-size="medium" data-text="signin"></div>
+    <span id="wt-signed-in-as" style="font-size:11px;font-weight:600;white-space:nowrap;"></span>
   </header>
 
   <!-- Sidebar -->
@@ -4645,6 +4653,41 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
 })();
 
 </script>
+
+<!-- ═══ TEST ONLY: connection to the comments backend ═══ -->
+<script>
+  const WT_BACKEND_URL = 'PASTE-YOUR-WEB-APP-URL-HERE';
+
+  let wtIdToken   = null;   // the Google ID card
+  let wtUserEmail = null;   // who is signed in (for display only)
+
+  // Google runs this after the user signs in
+  function wtOnSignIn(response) {
+    wtIdToken = response.credential;
+
+    // Read the email from the ID card, just to show it on screen.
+    // (The backend checks the card properly; this is only for display.)
+    const middlePart = response.credential.split('.')[1]
+      .replace(/-/g, '+').replace(/_/g, '/');
+    const cardInfo = JSON.parse(atob(middlePart));
+    wtUserEmail = cardInfo.email;
+
+    document.getElementById('wt-signed-in-as').textContent = '✅ ' + wtUserEmail;
+  }
+
+  // Send a request to the backend, with the ID card attached
+  async function wtCallBackend(payload) {
+    if (!wtIdToken) return { ok: false, error: 'Not signed in' };
+    payload.idToken = wtIdToken;
+    const res = await fetch(WT_BACKEND_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    return res.json();
+  }
+</script>
+
 
 </body>
 </html>
