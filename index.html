@@ -4688,12 +4688,16 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     return res.json();
   }
 
-  // Work out the lesson code and revision from the file name
-  // e.g. "MK-U1-C1-L001_R1_reviewed.html" → lesson "MK-U1-C1-L001", revision "R1"
+  // Work out the lesson code and revision from the file name.
+  // Looks for the lesson-code pattern at the start (e.g. MK-U1-C1-L001)
+  // and ignores anything after it (_R1, _reviewed, _test, " (1)", ...).
   function wtLessonInfo() {
     const name = (currentHtmlName || '').replace(/\.html?$/i, '');
     const revMatch = name.match(/_R(\d+)/i);
-    const lessonCode = name.replace(/_reviewed$/i, '').replace(/_R\d+.*$/i, '');
+    const codeMatch = name.match(/^[A-Za-z0-9]+-U\d+-C\d+-L\d+/i);
+    const lessonCode = codeMatch
+      ? codeMatch[0].toUpperCase()
+      : name.replace(/_reviewed$/i, '').replace(/_R\d+.*$/i, '');   // fallback: old rule
     return { lessonCode: lessonCode, revision: revMatch ? 'R' + revMatch[1] : '' };
   }
 
@@ -4744,6 +4748,20 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     if (!el || !wtUserEmail) return;
     el.textContent = '✅ ' + wtUserEmail + ' · ' + msg;
     setTimeout(() => { el.textContent = '✅ ' + wtUserEmail; }, 2500);
+  }
+
+    // Move each backend note so it sits beside its highlight or image
+  function wtAlignNotesToContent() {
+    annotations.forEach(ann => {
+      if (!ann.backendId) return;
+      const iframe = document.getElementById('iframe-' + ann.pageIndex);
+      let iDoc; try { iDoc = iframe && iframe.contentDocument; } catch (e) { return; }
+      if (!iDoc) return;
+      const el = iDoc.querySelector('mark.wt-hl[data-ann-id="' + ann.id + '"], img[data-ann-id="' + ann.id + '"]');
+      if (!el) return;                       // not found: stays at the top of the page
+      ann.y = Math.max(5, Math.round(el.getBoundingClientRect().top));
+    });
+    wtRepositionNotes();                     // Studio's existing "move notes into place"
   }
 
     // Find an image by its real filename (e.g. "eagle.png") on any page
@@ -4822,12 +4840,10 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
       added++;
     });
 
-    if (added) {
-      wtReconcileAll();      // Studio's existing "find the spot again" logic
-      const panel = document.getElementById('comments-panel');
-      if (panel) panel.classList.add('open');
-    }
-    wtFlash('☁️ ' + added + ' comment(s) loaded');
+      if (added) {
+      await wtReconcileAll();      // Studio's existing "find the spot again" logic
+      setTimeout(wtAlignNotesToContent, 600);
+    wtFlash('☁️ ' + added + ' comment(s) loaded for ' + info.lessonCode);
   }
 
   // When a lesson file is opened, also load its comments from the backend
