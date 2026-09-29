@@ -4843,9 +4843,12 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
       if (added) {
       await wtReconcileAll();      // Studio's existing "find the spot again" logic
       setTimeout(wtAlignNotesToContent, 600);
+      const panel = document.getElementById('comments-panel');
+      if (panel) panel.classList.add('open');
+    }
     wtFlash('☁️ ' + added + ' comment(s) loaded for ' + info.lessonCode);
   }
-
+  
   // When a lesson file is opened, also load its comments from the backend
   const _wtOrigOpenHtmlFileHandle = window.openHtmlFileHandle;
   window.openHtmlFileHandle = async function(fileHandle) {
