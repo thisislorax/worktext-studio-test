@@ -3253,7 +3253,7 @@ function createNoteEl(ann) {
       }
       note.remove();
       annotations = annotations.filter(a => a.id !== ann.id);
-      saveAnnotationState(); refreshCommentsSidebar();
+      saveAnnotationState(); refreshCommentsSidebar(); if (typeof wtDeleteFromBackend === 'function') wtDeleteFromBackend(ann);
     });
   });
   const linkBtn = document.createElement('button');
@@ -4740,6 +4740,19 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     } catch (err) {
       console.log('[backend] error', err);
       wtFlash('⚠️ not saved');
+    }
+  }
+
+    // DELETE: tell the backend this note was deleted (hides it; never erases)
+  async function wtDeleteFromBackend(ann) {
+    if (!wtIdToken || !ann.backendId) return;     // not signed in, or never saved: nothing to do
+    try {
+      const answer = await wtCallBackend({ action: 'delete', commentId: ann.backendId });
+      console.log('[backend]', answer);
+      wtFlash(answer.ok ? '☁️ deleted' : '⚠️ not deleted: ' + answer.error);
+    } catch (err) {
+      console.log('[backend] error', err);
+      wtFlash('⚠️ not deleted');
     }
   }
 
