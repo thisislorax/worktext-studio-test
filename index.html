@@ -4672,7 +4672,8 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     const cardInfo = JSON.parse(atob(middlePart));
     wtUserEmail = cardInfo.email;
 
-    document.getElementById('wt-signed-in-as').textContent = '✅ ' + wtUserEmail;
+        document.getElementById('wt-signed-in-as').textContent = '✅ ' + wtUserEmail;
+    if (currentHtmlName) wtLoadBackendComments();
   }
 
   // Send a request to the backend, with the ID card attached
@@ -4745,7 +4746,96 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     setTimeout(() => { el.textContent = '✅ ' + wtUserEmail; }, 2500);
   }
 
+    // Find an image by its real filename (e.g. "eagle.png") on any page
+  function wtFindImageByName(ann) {
+    if (!ann.imgFileName) return;
+    const iframes = Array.from(document.querySelectorAll('.page-iframe'));
+    for (let pi = 0; pi < iframes.length; pi++) {
+      let iDoc; try { iDoc = iframes[pi].contentDocument; } catch (e) { continue; }
+      if (!iDoc) continue;
+      const img = iDoc.querySelector('img[data-wt-orig-src="' + CSS.escape(ann.imgFileName) + '"]');
+      if (img) {
+        ann.pageIndex = pi;
+        ann.imgSrc = wtImgBasename(img.src);
+        const same = Array.from(iDoc.querySelectorAll('img')).filter(i => wtImgBasename(i.src) === ann.imgSrc);
+        ann.imgIndex = Math.max(0, same.indexOf(img));
+        return;
+      }
+    }
+  }
 
+  // Are all the lesson pages finished loading?
+  function wtPagesReady() {
+    const iframes = Array.from(document.querySelectorAll('.page-iframe'));
+    if (!iframes.length) return false;
+    return iframes.every(f => { try { return f.contentDocument.readyState === 'complete'; } catch (e) { return false; } });
+  }
+
+  // LOAD: get this lesson's comments from the backend and show them
+  async function wtLoadBackendComments(tries) {
+    tries = tries || 0;
+    if (!wtIdToken || !currentHtmlName) return;
+    if (!wtPagesReady()) {                               // pages still loading: try again shortly
+      if (tries < 20) setTimeout(() => wtLoadBackendComments(tries + 1), 300);
+      return;
+    }
+
+    const info = wtLessonInfo();
+    let answer;
+    try {
+      answer = await wtCallBackend({ action: 'list', lessonCode: info.lessonCode });
+    } catch (err) {
+      console.log('[backend] error', err); wtFlash('⚠️ could not load comments'); return;
+    }
+    if (!answer.ok) { console.log('[backend]', answer); wtFlash('⚠️ could not load comments'); return; }
+
+    const mainComments = answer.result.filter(c => !c.reply_to);   // replies come in step 5d
+    let added = 0;
+
+    mainComments.forEach(c => {
+      if (annotations.some(a => a.backendId === c.comment_id)) return;   // already on screen
+
+      const ann = {
+        id: ++annotIdSeq, pageIndex: 0,
+        type: c.type === 'image' ? 'image' : 'text',
+        x: WT_GUTTER_X, y: 60,
+        text: String(c.text || ''), time: c.created_at || new Date().toISOString(), collapsed: false,
+        highlightData: null, highlightText: String(c.quoted_text || ''),
+        imgSrc: null, imgIndex: 0, imgFileName: c.image_name ? String(c.image_name) : null,
+        anchor: {
+          quote: String(c.quoted_text || ''),
+          prefix: String(c.text_before || ''),
+          suffix: String(c.text_after || ''),
+          occurrence: Number(c.which_one) || 0
+        },
+        imgAnchor: c.image_fingerprint ? { hash: String(c.image_fingerprint) } : null,
+        reviewState: 'yellow', everChanged: false, stickerActive: false,
+        // backend info
+        backendId: c.comment_id, backendSentText: String(c.text || ''),
+        backendAuthor: c.author_email, backendStatus: c.status
+      };
+      if (ann.type === 'image') wtFindImageByName(ann);
+
+      annotations.push(ann);
+      const wrapperEl = document.getElementById('wrapper-' + ann.pageIndex);
+      if (wrapperEl) wrapperEl.appendChild(createNoteEl(ann));
+      added++;
+    });
+
+    if (added) {
+      wtReconcileAll();      // Studio's existing "find the spot again" logic
+      const panel = document.getElementById('comments-panel');
+      if (panel) panel.classList.add('open');
+    }
+    wtFlash('☁️ ' + added + ' comment(s) loaded');
+  }
+
+  // When a lesson file is opened, also load its comments from the backend
+  const _wtOrigOpenHtmlFileHandle = window.openHtmlFileHandle;
+  window.openHtmlFileHandle = async function(fileHandle) {
+    await _wtOrigOpenHtmlFileHandle(fileHandle);
+    setTimeout(() => wtLoadBackendComments(), 1000);
+  };
 
 
 
