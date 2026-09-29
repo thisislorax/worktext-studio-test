@@ -1142,8 +1142,8 @@
         </svg>
       </div>
       <div class="toolbar-logo-text">
-        <span>WT</span>
-        <span>STUDIO · TEST</span>
+        <span>WT STUDIO</span>
+        <span>TEST</span>
       </div>
     </div>
         <div class="toolbar-center">
@@ -3291,7 +3291,7 @@ function createNoteEl(ann) {
   function autoGrow() { body.style.height = 'auto'; body.style.height = body.scrollHeight + 'px'; }
   body.addEventListener('input', () => { ann.text = body.value; autoGrow(); saveAnnotationState(); refreshCommentsSidebar(); });
   body.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); body.blur(); saveAnnotationState(); refreshCommentsSidebar(); }
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); body.blur(); saveAnnotationState(); refreshCommentsSidebar(); if (typeof wtSyncComment === 'function') wtSyncComment(ann); }
   });
   body.addEventListener('focus', (e) => { e.stopPropagation(); showEditing(); });
   body.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -4686,6 +4686,69 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     });
     return res.json();
   }
+
+  // Work out the lesson code and revision from the file name
+  // e.g. "MK-U1-C1-L001_R1_reviewed.html" → lesson "MK-U1-C1-L001", revision "R1"
+  function wtLessonInfo() {
+    const name = (currentHtmlName || '').replace(/\.html?$/i, '');
+    const revMatch = name.match(/_R(\d+)/i);
+    const lessonCode = name.replace(/_reviewed$/i, '').replace(/_R\d+.*$/i, '');
+    return { lessonCode: lessonCode, revision: revMatch ? 'R' + revMatch[1] : '' };
+  }
+
+  // Send one sticky note to the backend.
+  // First time: SAVE it and remember its backend ID. After that: EDIT it.
+  async function wtSyncComment(ann) {
+    if (!wtIdToken) return;                               // not signed in: skip
+    if (!ann.text || !ann.text.trim()) return;            // empty note: skip
+    if (ann.backendId && ann.text === ann.backendSentText) return;  // nothing changed
+
+    try {
+      let answer;
+      if (!ann.backendId) {
+        const info = wtLessonInfo();
+        const a = ann.anchor || {};
+        answer = await wtCallBackend({
+          action: 'save',
+          data: {
+            lessonCode: info.lessonCode,
+            revision: info.revision,
+            text: ann.text,
+            type: ann.type,
+            quotedText: a.quote || ann.highlightText || '',
+            textBefore: a.prefix || '',
+            textAfter: a.suffix || '',
+            whichOne: a.occurrence || 0,
+            imageName: ann.imgFileName || ann.imgSrc || '',
+            imageFingerprint: (ann.imgAnchor && ann.imgAnchor.hash) || ''
+          }
+        });
+        if (answer.ok) ann.backendId = answer.result;
+      } else {
+        answer = await wtCallBackend({ action: 'edit', commentId: ann.backendId, newText: ann.text });
+      }
+
+      if (answer.ok) ann.backendSentText = ann.text;
+      console.log('[backend]', answer);
+      wtFlash(answer.ok ? '☁️ saved' : '⚠️ not saved');
+    } catch (err) {
+      console.log('[backend] error', err);
+      wtFlash('⚠️ not saved');
+    }
+  }
+
+  // Briefly show "saved" next to your email in the toolbar
+  function wtFlash(msg) {
+    const el = document.getElementById('wt-signed-in-as');
+    if (!el || !wtUserEmail) return;
+    el.textContent = '✅ ' + wtUserEmail + ' · ' + msg;
+    setTimeout(() => { el.textContent = '✅ ' + wtUserEmail; }, 2500);
+  }
+
+
+
+
+
 </script>
 
 
