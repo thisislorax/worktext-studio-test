@@ -4667,18 +4667,24 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
   let wtIdToken   = null;   // the Google ID card
   let wtUserEmail = null;   // who is signed in (for display only)
 
+    let wtUserName = null;   // the signed-in person's real name (for display only)
+
   // Google runs this after the user signs in
   function wtOnSignIn(response) {
     wtIdToken = response.credential;
 
-    // Read the email from the ID card, just to show it on screen.
+    // Read the email and name from the ID card, just to show them on screen.
     // (The backend checks the card properly; this is only for display.)
+    // TextDecoder keeps letters like ñ correct.
     const middlePart = response.credential.split('.')[1]
       .replace(/-/g, '+').replace(/_/g, '/');
-    const cardInfo = JSON.parse(atob(middlePart));
+    const bytes = Uint8Array.from(atob(middlePart), ch => ch.charCodeAt(0));
+    const cardInfo = JSON.parse(new TextDecoder().decode(bytes));
     wtUserEmail = cardInfo.email;
+    wtUserName  = cardInfo.name || null;
+    if (wtUserName) wtNames[wtUserEmail] = wtUserName;
 
-        document.getElementById('wt-signed-in-as').textContent = '✅ ' + wtUserEmail;
+    document.getElementById('wt-signed-in-as').textContent = '✅ ' + wtUserEmail;
     if (currentHtmlName) wtLoadBackendComments();
   }
 
@@ -4833,6 +4839,11 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
       (wtReplies[r.reply_to] = wtReplies[r.reply_to] || []).push(r);
     });
 
+    // Learn everyone's real name from the rows we just received
+    answer.result.forEach(c => {
+      if (c.author_email && c.author_name) wtNames[c.author_email] = String(c.author_name);
+    });
+
     const mainComments = answer.result.filter(c => !c.reply_to);
     let added = 0;
 
@@ -4894,6 +4905,10 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
   // ═══ STEP 5d: author names, replies, resolve ═══
 
   let wtReplies = {};   // replies grouped by the comment they answer: { commentId: [reply, reply] }
+    const wtNames = {};   // email → real name, e.g. { 'loran.inosa@thynker.tech': 'Loran Iñosa' }
+
+  // Real name if we know it, otherwise the part of the email before the @
+  function wtNameFor(email) { return wtNames[email] || wtShortName(email); }
 
   function wtShortName(email) { return String(email || '').split('@')[0] || 'someone'; }
   function wtShortTime(t) {
@@ -4923,12 +4938,14 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     annotations.forEach(ann => { if (ann.backendId) wtDecorateNote(ann); });
   }
 
-  // Build (or rebuild) the thread area under ONE note
+    // Build (or rebuild) the name header + thread area for ONE note
   function wtDecorateNote(ann) {
     const note = document.getElementById('ann-' + ann.id);
     if (!note) return;
-    const old = note.querySelector('.wt-thread');
-    if (old) old.remove();
+    const oldThread = note.querySelector('.wt-thread');
+    if (oldThread) oldThread.remove();
+    const oldHead = note.querySelector('.wt-note-head');
+    if (oldHead) oldHead.remove();
 
     const isMine   = ann.backendAuthor === wtUserEmail;
     const resolved = ann.backendStatus === 'resolved';
@@ -4941,23 +4958,37 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
 
     note.classList.toggle('wt-resolved', resolved);
 
+    // NAME HEADER at the top of the note (like Google Docs)
+    const head = document.createElement('div');
+    head.className = 'wt-note-head';
+    head.style.cssText = 'font-family:Montserrat,sans-serif;font-size:11px;font-weight:700;margin:0 0 4px;';
+    head.textContent = wtNameFor(ann.backendAuthor);
+    const headTime = document.createElement('span');
+    headTime.style.cssText = 'font-weight:400;color:#999;font-size:9.5px;margin-left:6px;';
+    headTime.textContent = wtShortTime(ann.time);
+    head.appendChild(headTime);
+    const dragHandle = note.querySelector('.note-drag-handle');
+    if (dragHandle && dragHandle.nextSibling) note.insertBefore(head, dragHandle.nextSibling);
+    else note.prepend(head);
+
     const thread = document.createElement('div');
     thread.className = 'wt-thread';
     thread.addEventListener('mousedown', e => e.stopPropagation());
 
-    // Who wrote it (+ who resolved it)
-    const by = document.createElement('div');
-    by.className = 'wt-thread-by';
-    by.textContent = '— ' + wtShortName(ann.backendAuthor)
-      + (resolved ? '  ·  ✓ resolved by ' + wtShortName(ann.backendResolvedBy) : '');
-    thread.appendChild(by);
+    // Resolved line (only when resolved)
+    if (resolved) {
+      const by = document.createElement('div');
+      by.className = 'wt-thread-by';
+      by.textContent = '✓ Resolved by ' + wtNameFor(ann.backendResolvedBy);
+      thread.appendChild(by);
+    }
 
     // Replies (textContent only: other people's text is never treated as code)
     (wtReplies[ann.backendId] || []).forEach(r => {
       const row  = document.createElement('div');
       row.className = 'wt-thread-reply';
       const who  = document.createElement('b');
-      who.textContent = wtShortName(r.author_email) + ': ';
+      who.textContent = wtNameFor(r.author_email) + ': ';
       const txt  = document.createElement('span');
       txt.textContent = r.text;
       const when = document.createElement('div');
@@ -5016,7 +5047,7 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
 
     note.appendChild(thread);
   }
-
+  
   // Studio rebuilds notes whenever the lesson re-renders (file saved, images loaded,
   // PDF Sim toggled). Every rebuild ends with wtRepositionNotes, so re-add threads there.
   const _wtOrigRepositionNotes = window.wtRepositionNotes;
