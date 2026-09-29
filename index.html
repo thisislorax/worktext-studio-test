@@ -3304,7 +3304,7 @@ function createNoteEl(ann) {
   // text box (the textarea above), same as it's always been.
   const displayEl = document.createElement('div');
   displayEl.className = 'note-display';
-  function wtEscapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function wtEscapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function wtLinkify(text) {
     return wtEscapeHtml(text || '')
       .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1<\/a>')
@@ -3451,7 +3451,13 @@ function refreshCommentsSidebar() {
     entry.className = 'comment-entry';
     const icon    = ann.type === 'image' ? '\uD83D\uDDBC\uFE0F ' : '';
     const preview = ann.text.trim() || (ann.highlightText ? `"${ann.highlightText.slice(0,30)}\u2026"` : '(empty)');
-    entry.innerHTML = `<span class="ce-page">Page ${ann.pageIndex + 1}</span><span class="ce-text">${icon}${preview}</span>`;
+    const pageEl = document.createElement('span');
+    pageEl.className = 'ce-page';
+    pageEl.textContent = 'Page ' + (ann.pageIndex + 1);
+    const textEl = document.createElement('span');
+    textEl.className = 'ce-text';
+    textEl.textContent = icon + preview;
+    entry.append(pageEl, textEl);
     entry.addEventListener('click', () => {
       scrollToPage(ann.pageIndex);
       const noteEl = document.getElementById(`ann-${ann.id}`);
