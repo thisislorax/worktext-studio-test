@@ -4725,7 +4725,8 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
             textAfter: a.suffix || '',
             whichOne: a.occurrence || 0,
             imageName: ann.imgFileName || ann.imgSrc || '',
-            imageFingerprint: (ann.imgAnchor && ann.imgAnchor.hash) || ''
+            imageFingerprint: (ann.imgAnchor && ann.imgAnchor.hash) || '',
+            pageHint: ann.pageIndex
           }
         });
         if (answer.ok) ann.backendId = answer.result;
@@ -4813,8 +4814,10 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     mainComments.forEach(c => {
       if (annotations.some(a => a.backendId === c.comment_id)) return;   // already on screen
 
+      let hint = Number(c.page_hint) || 0;
+      if (!document.getElementById('wrapper-' + hint)) hint = 0;   // page no longer exists: start at page 1
       const ann = {
-        id: ++annotIdSeq, pageIndex: 0,
+        id: ++annotIdSeq, pageIndex: hint,
         type: c.type === 'image' ? 'image' : 'text',
         x: WT_GUTTER_X, y: 60,
         text: String(c.text || ''), time: c.created_at || new Date().toISOString(), collapsed: false,
