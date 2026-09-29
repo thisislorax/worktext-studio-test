@@ -4729,7 +4729,7 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
             pageHint: ann.pageIndex
           }
         });
-        if (answer.ok) ann.backendId = answer.result;
+        if (answer.ok) { ann.backendId = answer.result; ann.backendAuthor = wtUserEmail; ann.backendStatus = 'open'; wtDecorateNote(ann); }
       } else {
         answer = await wtCallBackend({ action: 'edit', commentId: ann.backendId, newText: ann.text });
       }
@@ -4803,7 +4803,7 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     return iframes.every(f => { try { return f.contentDocument.readyState === 'complete'; } catch (e) { return false; } });
   }
 
-  // LOAD: get this lesson's comments from the backend and show them
+    // LOAD: get this lesson's comments (and replies) from the backend and show them
   async function wtLoadBackendComments(tries) {
     tries = tries || 0;
     if (!wtIdToken || !currentHtmlName) return;
@@ -4821,14 +4821,26 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     }
     if (!answer.ok) { console.log('[backend]', answer); wtFlash('⚠️ could not load comments'); return; }
 
-    const mainComments = answer.result.filter(c => !c.reply_to);   // replies come in step 5d
+    // Group replies under the comment they answer
+    wtReplies = {};
+    answer.result.filter(c => c.reply_to).forEach(r => {
+      (wtReplies[r.reply_to] = wtReplies[r.reply_to] || []).push(r);
+    });
+
+    const mainComments = answer.result.filter(c => !c.reply_to);
     let added = 0;
 
     mainComments.forEach(c => {
-      if (annotations.some(a => a.backendId === c.comment_id)) return;   // already on screen
+      const existing = annotations.find(a => a.backendId === c.comment_id);
+      if (existing) {                                    // already on screen: just refresh its status
+        existing.backendStatus = c.status;
+        existing.backendResolvedBy = c.resolved_by;
+        return;
+      }
 
       let hint = Number(c.page_hint) || 0;
       if (!document.getElementById('wrapper-' + hint)) hint = 0;   // page no longer exists: start at page 1
+
       const ann = {
         id: ++annotIdSeq, pageIndex: hint,
         type: c.type === 'image' ? 'image' : 'text',
@@ -4846,7 +4858,7 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
         reviewState: 'yellow', everChanged: false, stickerActive: false,
         // backend info
         backendId: c.comment_id, backendSentText: String(c.text || ''),
-        backendAuthor: c.author_email, backendStatus: c.status
+        backendAuthor: c.author_email, backendStatus: c.status, backendResolvedBy: c.resolved_by
       };
       if (ann.type === 'image') wtFindImageByName(ann);
 
@@ -4856,12 +4868,13 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
       added++;
     });
 
-      if (added) {
+    if (added) {
       await wtReconcileAll();      // Studio's existing "find the spot again" logic
       setTimeout(wtAlignNotesToContent, 600);
       const panel = document.getElementById('comments-panel');
       if (panel) panel.classList.add('open');
     }
+    wtDecorateAllNotes();
     wtFlash('☁️ ' + added + ' comment(s) loaded for ' + info.lessonCode);
   }
   
@@ -4872,7 +4885,139 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     setTimeout(() => wtLoadBackendComments(), 1000);
   };
 
+  // ═══ STEP 5d: author names, replies, resolve ═══
 
+  let wtReplies = {};   // replies grouped by the comment they answer: { commentId: [reply, reply] }
+
+  function wtShortName(email) { return String(email || '').split('@')[0] || 'someone'; }
+  function wtShortTime(t) {
+    try { return new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+    catch (e) { return ''; }
+  }
+
+  // Look for the thread area
+  (function wtAddThreadStyles() {
+    const s = document.createElement('style');
+    s.textContent = `
+      .wt-thread { margin-top:6px; padding-top:6px; border-top:1px dashed rgba(128,128,128,.4); font-family:Montserrat,sans-serif; font-size:10.5px; }
+      .wt-thread-by { color:#888; font-style:italic; margin-bottom:4px; }
+      .wt-thread-reply { margin:4px 0; padding:4px 6px; background:rgba(128,128,128,.12); border-radius:6px; overflow-wrap:anywhere; }
+      .wt-thread-time { color:#999; font-size:9px; margin-top:2px; }
+      .wt-thread-input { width:100%; box-sizing:border-box; margin-top:4px; padding:4px 6px; font-size:10.5px; border:1px solid rgba(128,128,128,.4); border-radius:6px; background:transparent; color:inherit; font-family:inherit; }
+      .wt-thread-btn { margin-top:4px; font-size:10px; padding:2px 8px; border-radius:10px; border:1px solid rgba(128,128,128,.5); background:transparent; color:inherit; cursor:pointer; font-family:inherit; }
+      .wt-annotation.wt-resolved { opacity:.5; }
+      .wt-annotation.wt-resolved:hover { opacity:.95; }
+      .wt-annotation.collapsed .wt-thread { display:none; }
+    `;
+    document.head.appendChild(s);
+  })();
+
+  // Add the thread area to every note that lives in the backend
+  function wtDecorateAllNotes() {
+    annotations.forEach(ann => { if (ann.backendId) wtDecorateNote(ann); });
+  }
+
+  // Build (or rebuild) the thread area under ONE note
+  function wtDecorateNote(ann) {
+    const note = document.getElementById('ann-' + ann.id);
+    if (!note) return;
+    const old = note.querySelector('.wt-thread');
+    if (old) old.remove();
+
+    const isMine   = ann.backendAuthor === wtUserEmail;
+    const resolved = ann.backendStatus === 'resolved';
+
+    // Other people's comments: no editing, no ✕ (the backend refuses these anyway)
+    const body = note.querySelector('.note-body');
+    if (body) body.readOnly = !isMine;
+    const delBtn = note.querySelector('.note-action-btn[title="Delete comment"]');
+    if (delBtn) delBtn.style.display = isMine ? '' : 'none';
+
+    note.classList.toggle('wt-resolved', resolved);
+
+    const thread = document.createElement('div');
+    thread.className = 'wt-thread';
+    thread.addEventListener('mousedown', e => e.stopPropagation());
+
+    // Who wrote it (+ who resolved it)
+    const by = document.createElement('div');
+    by.className = 'wt-thread-by';
+    by.textContent = '— ' + wtShortName(ann.backendAuthor)
+      + (resolved ? '  ·  ✓ resolved by ' + wtShortName(ann.backendResolvedBy) : '');
+    thread.appendChild(by);
+
+    // Replies (textContent only: other people's text is never treated as code)
+    (wtReplies[ann.backendId] || []).forEach(r => {
+      const row  = document.createElement('div');
+      row.className = 'wt-thread-reply';
+      const who  = document.createElement('b');
+      who.textContent = wtShortName(r.author_email) + ': ';
+      const txt  = document.createElement('span');
+      txt.textContent = r.text;
+      const when = document.createElement('div');
+      when.className = 'wt-thread-time';
+      when.textContent = wtShortTime(r.created_at);
+      row.append(who, txt, when);
+      thread.appendChild(row);
+    });
+
+    // Reply box
+    const input = document.createElement('input');
+    input.className = 'wt-thread-input';
+    input.placeholder = 'Reply… (Enter to send)';
+    input.addEventListener('keydown', async e => {
+      e.stopPropagation();
+      if (e.key !== 'Enter' || !input.value.trim()) return;
+      e.preventDefault();
+      const text = input.value.trim();
+      input.disabled = true;
+      const answer = await wtCallBackend({
+        action: 'save',
+        data: { lessonCode: wtLessonInfo().lessonCode, replyTo: ann.backendId, text: text }
+      }).catch(() => ({ ok: false }));
+      if (answer.ok) {
+        (wtReplies[ann.backendId] = wtReplies[ann.backendId] || []).push(
+          { comment_id: answer.result, author_email: wtUserEmail, text: text, created_at: new Date().toISOString() });
+        wtDecorateNote(ann);
+        wtFlash('☁️ reply sent');
+      } else {
+        input.disabled = false;
+        wtFlash('⚠️ reply not sent');
+      }
+    });
+    thread.appendChild(input);
+
+    // Resolve / Reopen (anyone can)
+    const btn = document.createElement('button');
+    btn.className = 'wt-thread-btn';
+    btn.textContent = resolved ? '↺ Reopen' : '✓ Resolve';
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      btn.disabled = true;
+      const newStatus = resolved ? 'open' : 'resolved';
+      const answer = await wtCallBackend({ action: 'status', commentId: ann.backendId, status: newStatus })
+        .catch(() => ({ ok: false }));
+      if (answer.ok) {
+        ann.backendStatus = newStatus;
+        ann.backendResolvedBy = newStatus === 'resolved' ? wtUserEmail : '';
+        wtDecorateNote(ann);
+      } else {
+        btn.disabled = false;
+        wtFlash('⚠️ could not update');
+      }
+    });
+    thread.appendChild(btn);
+
+    note.appendChild(thread);
+  }
+
+  // Studio rebuilds notes whenever the lesson re-renders (file saved, images loaded,
+  // PDF Sim toggled). Every rebuild ends with wtRepositionNotes, so re-add threads there.
+  const _wtOrigRepositionNotes = window.wtRepositionNotes;
+  window.wtRepositionNotes = function() {
+    _wtOrigRepositionNotes();
+    wtDecorateAllNotes();
+  };
 
 </script>
 
