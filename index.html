@@ -3818,13 +3818,13 @@ function wtFindPageRawSpans(html) {
     const openStart = m.index;
     const openEnd   = openRe.lastIndex;
     tagRe.lastIndex = openEnd;
-    let depth = 1, closeEnd = -1, t;
+        let depth = 1, closeStart = -1, closeEnd = -1, t;
     while ((t = tagRe.exec(html))) {
       if (t[0].charAt(1) === '/') { depth--; if (depth === 0) { closeEnd = tagRe.lastIndex; break; } }
       else depth++;
     }
     if (closeEnd === -1) break; // malformed / unbalanced markup — bail out safely
-    spans.push({ openStart, openEnd, closeEnd });
+    spans.push({ openStart, openEnd, closeStart, closeEnd });
     openRe.lastIndex = closeEnd;
   }
   return spans;
@@ -3952,7 +3952,7 @@ function wtEmbedStickyAnchors(html) {
       if (!pageAnns || !pageAnns.length) return;
 
       const rawStart = span.openEnd + shift;
-      const rawEnd   = span.closeEnd + shift;
+            const rawEnd   = span.closeStart + shift;   // stop BEFORE the page's own </div>, so it's never lost
       const pageRaw  = out.slice(rawStart, rawEnd);
 
       // Comments already anchored on this page from an earlier save need no
