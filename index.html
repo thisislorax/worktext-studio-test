@@ -1215,13 +1215,14 @@
     <span class="status-pill" id="status-pill">
       <span class="dot"></span>No file loaded
     </span>
-        <!-- TEST ONLY: Sign in with Google -->
-    <div id="g_id_onload"
-         data-client_id="483380632303-00dmlah61gfo683b11daelmcsbofejm7.apps.googleusercontent.com"
-         data-callback="wtOnSignIn"
-         data-auto_prompt="false"></div>
-    <div class="g_id_signin" data-type="standard" data-size="medium" data-text="signin"></div>
-    <span id="wt-signed-in-as" style="font-size:11px;font-weight:600;white-space:nowrap;"></span>
+            <!-- TEST ONLY: sign-in area (filled in by the TEST block) -->
+    <div id="wt-auth" style="position:relative;display:flex;align-items:center;">
+      <div id="wt-signin-btn"></div>
+      <button id="wt-signed-in-as" type="button" style="display:none;font-size:11px;font-weight:600;white-space:nowrap;background:transparent;border:1px solid rgba(128,128,128,.4);border-radius:999px;padding:4px 10px;color:inherit;cursor:pointer;font-family:inherit;"></button>
+      <div id="wt-user-menu" style="display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:1000;background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:4px;">
+        <button id="wt-signout-btn" type="button" style="background:none;border:none;padding:8px 14px;font-size:12px;color:#c62828;cursor:pointer;white-space:nowrap;font-family:inherit;">Sign out</button>
+      </div>
+    </div>
   </header>
 
   <!-- Sidebar -->
@@ -4660,30 +4661,42 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
   let wtIdToken   = null;   // the Google ID card
   let wtUserEmail = null;   // who is signed in (for display only)
 
-    let wtUserName = null;   // the signed-in person's real name (for display only)
+  let wtUserName = null;   // the signed-in person's real name (for display only)
+  let wtTokenExp = 0;      // when the current sign-in expires (in milliseconds)
 
-  // Google runs this after the user signs in
+  // Google runs this after the user signs in (or is signed back in automatically)
   function wtOnSignIn(response) {
+    const firstSignIn = !wtUserEmail;      // first sign-in on this page (not a refresh after expiry)
     wtIdToken = response.credential;
 
-    // Read the email and name from the ID card, just to show them on screen.
-    // (The backend checks the card properly; this is only for display.)
-    // TextDecoder keeps letters like ñ correct.
+    // Read the email, name and expiry time from the ID card (for display only;
+    // the backend checks the card properly). TextDecoder keeps letters like ñ correct.
     const middlePart = response.credential.split('.')[1]
       .replace(/-/g, '+').replace(/_/g, '/');
     const bytes = Uint8Array.from(atob(middlePart), ch => ch.charCodeAt(0));
     const cardInfo = JSON.parse(new TextDecoder().decode(bytes));
     wtUserEmail = cardInfo.email;
     wtUserName  = cardInfo.name || null;
+    wtTokenExp  = (cardInfo.exp || 0) * 1000;
     if (wtUserName) wtNames[wtUserEmail] = wtUserName;
 
-    document.getElementById('wt-signed-in-as').textContent = '✅ ' + wtUserEmail;
+    wtSetChoice('yes');          // remember: this person signs in
+    wtCloseWelcome();
+    wtShowSignedIn();
+
+    // Option A: comments made BEFORE signing in stay on this screen only
+    if (firstSignIn) annotations.forEach(a => { if (!a.backendId) a.notShared = true; });
+
     if (currentHtmlName) wtLoadBackendComments();
   }
 
-  // Send a request to the backend, with the ID card attached
+    // Send a request to the backend, with the ID card attached
   async function wtCallBackend(payload) {
     if (!wtIdToken) return { ok: false, error: 'Not signed in' };
+    if (wtTokenExp && Date.now() > wtTokenExp - 60000) {   // expired (or expiring within a minute)
+      wtSignInExpired();
+      return { ok: false, error: 'Sign-in expired' };
+    }
     payload.idToken = wtIdToken;
     const res = await fetch(WT_BACKEND_URL, {
       method: 'POST',
@@ -4710,6 +4723,7 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
   // First time: SAVE it and remember its backend ID. After that: EDIT it.
   async function wtSyncComment(ann) {
     if (!wtIdToken) return;                               // not signed in: skip
+    if (ann.notShared && !ann.backendId) return;          // not-shared comment: stays on this screen
     if (!ann.text || !ann.text.trim()) return;            // empty note: skip
     if (ann.backendId && ann.text === ann.backendSentText) return;  // nothing changed
 
@@ -4765,6 +4779,7 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
   function wtFlash(msg) {
     const el = document.getElementById('wt-signed-in-as');
     if (!el || !wtUserEmail) return;
+    if (wtTokenExp && Date.now() > wtTokenExp - 60000) return;   // expired: keep the warning visible
     el.textContent = '✅ ' + wtUserEmail + ' · ' + msg;
     setTimeout(() => { el.textContent = '✅ ' + wtUserEmail; }, 2500);
   }
@@ -4928,9 +4943,12 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     document.head.appendChild(s);
   })();
 
-  // Add the thread area to every note that lives in the backend
+    // Shared notes get name + thread; not-shared notes get a small label (only when signed in)
   function wtDecorateAllNotes() {
-    annotations.forEach(ann => { if (ann.backendId) wtDecorateNote(ann); });
+    annotations.forEach(ann => {
+      if (ann.backendId) wtDecorateNote(ann);
+      else if (ann.notShared && wtIdToken) wtLabelLocalNote(ann);
+    });
   }
 
     // Build (or rebuild) the name header + thread area for ONE note
@@ -5050,6 +5068,132 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     _wtOrigRepositionNotes();
     wtDecorateAllNotes();
   };
+
+    // ═══ STEP: welcome screen, remembered choice, toolbar email, sign out ═══
+
+  const WT_CLIENT_ID = '483380632303-00dmlah61gfo683b11daelmcsbofejm7.apps.googleusercontent.com';
+
+  // Remember the choice in the browser ('yes' = signs in, 'no' = doesn't, null = not asked yet)
+  function wtGetChoice() { try { return localStorage.getItem('wt-signin-choice'); } catch (e) { return null; } }
+  function wtSetChoice(v) {
+    try { if (v) localStorage.setItem('wt-signin-choice', v); else localStorage.removeItem('wt-signin-choice'); }
+    catch (e) {}
+  }
+
+  // Wait until Google's sign-in tool has finished loading
+  function wtWhenGoogleReady(cb) {
+    if (window.google && google.accounts && google.accounts.id) cb();
+    else setTimeout(() => wtWhenGoogleReady(cb), 100);
+  }
+
+  // Toolbar: signed-in look (email pill) vs signed-out look (Sign in button)
+  function wtShowSignedIn() {
+    document.getElementById('wt-signin-btn').style.display = 'none';
+    const chip = document.getElementById('wt-signed-in-as');
+    chip.style.display = '';
+    chip.textContent = '✅ ' + wtUserEmail;
+    chip.title = 'Signed in as ' + (wtUserName || wtUserEmail) + ' (click to sign out)';
+  }
+  function wtShowSignedOut() {
+    const box = document.getElementById('wt-signin-btn');
+    box.style.display = '';
+    if (!box.hasChildNodes()) {
+      google.accounts.id.renderButton(box, { type: 'standard', size: 'small', text: 'signin', shape: 'pill' });
+    }
+    document.getElementById('wt-signed-in-as').style.display = 'none';
+    document.getElementById('wt-user-menu').style.display = 'none';
+  }
+
+  // Sign-in ran out (about 1 hour): show a warning + Sign in button, and try to sign back in
+  function wtSignInExpired() {
+    wtShowSignedOut();
+    const chip = document.getElementById('wt-signed-in-as');
+    chip.style.display = '';
+    chip.textContent = '⚠️ Sign-in expired';
+    try { google.accounts.id.prompt(); } catch (e) {}
+  }
+
+  // The welcome box
+  function wtShowWelcome() {
+    if (document.getElementById('wt-welcome')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'wt-welcome';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(20,20,30,.45);display:flex;align-items:center;justify-content:center;font-family:Montserrat,sans-serif;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#fff;color:#222;border-radius:16px;padding:28px 30px;width:min(380px,90vw);box-shadow:0 12px 40px rgba(0,0,0,.25);text-align:center;';
+    box.innerHTML =
+      '<div style="font-size:20px;font-weight:800;color:#d7486f;margin-bottom:8px;">Welcome to Worktext Studio</div>' +
+      '<div style="font-size:13px;color:#555;line-height:1.5;margin-bottom:18px;">Sign in with your company Google account to share comments and replies with your team.</div>' +
+      '<div id="wt-welcome-google" style="display:flex;justify-content:center;margin-bottom:12px;"></div>' +
+      '<button id="wt-welcome-no" type="button" style="background:none;border:none;color:#777;font-size:12.5px;text-decoration:underline;cursor:pointer;font-family:inherit;">No, continue without signing in</button>' +
+      '<div style="font-size:11px;color:#999;margin-top:14px;">You can sign in later from the top bar.</div>';
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    google.accounts.id.renderButton(document.getElementById('wt-welcome-google'),
+      { type: 'standard', size: 'large', text: 'signin_with', shape: 'pill' });
+    document.getElementById('wt-welcome-no').addEventListener('click', () => {
+      wtSetChoice('no');       // remember: this person doesn't sign in
+      wtCloseWelcome();
+    });
+  }
+  function wtCloseWelcome() {
+    const el = document.getElementById('wt-welcome');
+    if (el) el.remove();
+  }
+
+  // Clicking the email opens the small menu; clicking anywhere else closes it
+  document.getElementById('wt-signed-in-as').addEventListener('click', e => {
+    e.stopPropagation();
+    const menu = document.getElementById('wt-user-menu');
+    menu.style.display = menu.style.display === 'none' ? '' : 'none';
+  });
+  document.addEventListener('click', () => {
+    document.getElementById('wt-user-menu').style.display = 'none';
+  });
+
+  // Sign out: forget the remembered choice and reload
+  document.getElementById('wt-signout-btn').addEventListener('click', () => {
+    if (!confirm('Sign out of Worktext Studio?\n\nThe page will reload. Comments that are not shared will be cleared, so use Save Reviewed HTML first if you need them.')) return;
+    try { google.accounts.id.disableAutoSelect(); } catch (e) {}
+    wtSetChoice(null);
+    location.reload();
+  });
+
+  // Small grey label on not-shared notes
+  function wtLabelLocalNote(ann) {
+    const note = document.getElementById('ann-' + ann.id);
+    if (!note || note.querySelector('.wt-note-head')) return;
+    const head = document.createElement('div');
+    head.className = 'wt-note-head';
+    head.style.cssText = 'font-family:Montserrat,sans-serif;font-size:10px;color:#999;font-style:italic;margin:0 0 4px;';
+    head.textContent = '📄 Not shared';
+    head.title = 'This comment is only on this screen. Use Save Reviewed HTML to keep it.';
+    const dragHandle = note.querySelector('.note-drag-handle');
+    if (dragHandle && dragHandle.nextSibling) note.insertBefore(head, dragHandle.nextSibling);
+    else note.prepend(head);
+  }
+
+  // Comments restored from a file (and not already shared) are "not shared"
+  const _wtOrigRestoreAnnotations = window.restoreAnnotations;
+  window.restoreAnnotations = function(data) {
+    _wtOrigRestoreAnnotations(data);
+    annotations.forEach(a => { if (!a.backendId) a.notShared = true; });
+  };
+
+  // START: set up Google sign-in, then follow the remembered choice
+  wtWhenGoogleReady(() => {
+    google.accounts.id.initialize({
+      client_id: WT_CLIENT_ID,
+      callback: wtOnSignIn,
+      auto_select: true,              // sign back in automatically when possible
+      cancel_on_tap_outside: true
+    });
+    wtShowSignedOut();                // toolbar starts with the small "Sign in"
+    const choice = wtGetChoice();
+    if (choice === 'yes') google.accounts.id.prompt();   // try to sign back in automatically
+    else if (!choice) wtShowWelcome();                    // never asked: show the welcome box
+    // choice === 'no': do nothing, Studio works without signing in
+  });
 
 </script>
 
