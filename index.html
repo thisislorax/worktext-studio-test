@@ -1142,8 +1142,8 @@
         </svg>
       </div>
       <div class="toolbar-logo-text">
-        <span>WT STUDIO</span>
-        <span>TEST</span>
+        <span>WORKTEXT</span>
+        <span>STUDIO</span>
       </div>
     </div>
         <div class="toolbar-center">
@@ -1215,12 +1215,13 @@
     <span class="status-pill" id="status-pill">
       <span class="dot"></span>No file loaded
     </span>
-            <!-- TEST ONLY: sign-in area (filled in by the TEST block) -->
-    <div id="wt-auth" style="position:relative;display:flex;align-items:center;">
+            <!-- SIGN IN AREA (filled in by the TEST block) -->
+        <div id="wt-auth" style="position:relative;display:flex;align-items:center;flex-shrink:0;">
       <div id="wt-signin-btn"></div>
-      <button id="wt-signed-in-as" type="button" style="display:none;font-size:11px;font-weight:600;white-space:nowrap;background:transparent;border:1px solid rgba(128,128,128,.4);border-radius:999px;padding:4px 10px;color:inherit;cursor:pointer;font-family:inherit;"></button>
-      <div id="wt-user-menu" style="display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:1000;background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:4px;">
-        <button id="wt-signout-btn" type="button" style="background:none;border:none;padding:8px 14px;font-size:12px;color:#c62828;cursor:pointer;white-space:nowrap;font-family:inherit;">Sign out</button>
+      <button id="wt-signed-in-as" type="button" style="display:none;width:30px;height:30px;border-radius:50%;border:none;background:#d7486f;color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;padding:0;flex-shrink:0;"></button>
+      <div id="wt-user-menu" style="display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:1000;background:#fff;color:#333;border:1px solid #ddd;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:6px;min-width:220px;">
+        <div id="wt-user-menu-email" style="padding:6px 10px 8px;font-size:11.5px;color:#555;border-bottom:1px solid #eee;margin-bottom:4px;overflow-wrap:anywhere;"></div>
+        <button id="wt-signout-btn" type="button" style="background:none;border:none;padding:8px 10px;font-size:12px;color:#c62828;cursor:pointer;white-space:nowrap;font-family:inherit;">Sign out</button>
       </div>
     </div>
   </header>
@@ -4656,7 +4657,7 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
 
 <!-- ═══ TEST ONLY: connection to the comments backend ═══ -->
 <script>
-      const WT_BACKEND_URL = 'https://script.google.com/macros/s/AKfycbxB4InD2pxpVzv4Mo6thjmW3BWDIVDm6ThrgxhHb5S-kOgtwIUnSFuQ5MmkLU5Fhrn_rg/exec';
+      const WT_BACKEND_URL = 'https://script.google.com/macros/s/AKfycbxHzVYuiUov01YIH8BfnIvnvTwIuvFO5bFcd-ISc98iy6FuI3LQqkUUPbvjY9jV7cWe/exec';
 
   let wtIdToken   = null;   // the Google ID card
   let wtUserEmail = null;   // who is signed in (for display only)
@@ -4775,13 +4776,24 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     }
   }
 
-  // Briefly show "saved" next to your email in the toolbar
-  function wtFlash(msg) {
-    const el = document.getElementById('wt-signed-in-as');
-    if (!el || !wtUserEmail) return;
-    if (wtTokenExp && Date.now() > wtTokenExp - 60000) return;   // expired: keep the warning visible
-    el.textContent = '✅ ' + wtUserEmail + ' · ' + msg;
-    setTimeout(() => { el.textContent = '✅ ' + wtUserEmail; }, 2500);
+  /  // Small pop-up message at the bottom-left corner (fades away after a few seconds)
+  function wtFlash(msg, ms) {
+    // If the sign-in has expired, say that instead (it's the real reason something failed)
+    if (wtTokenExp && Date.now() > wtTokenExp - 60000) {
+      msg = '⚠️ Sign-in expired. Please sign in again, then try again.';
+      ms = 6000;
+    }
+    let box = document.getElementById('wt-toast');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'wt-toast';
+      box.style.cssText = 'position:fixed;left:20px;bottom:20px;z-index:100000;max-width:340px;padding:9px 14px;border-radius:10px;background:#2b2b33;color:#fff;font-family:Montserrat,sans-serif;font-size:12px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.25);opacity:0;transition:opacity .25s;pointer-events:none;';
+      document.body.appendChild(box);
+    }
+    box.textContent = msg;
+    box.style.opacity = '1';
+    clearTimeout(wtFlash._timer);
+    wtFlash._timer = setTimeout(() => { box.style.opacity = '0'; }, ms || 2800);
   }
 
     // Move each backend note so it sits beside its highlight or image
@@ -5087,12 +5099,14 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
   }
 
   // Toolbar: signed-in look (email pill) vs signed-out look (Sign in button)
-  function wtShowSignedIn() {
+    function wtShowSignedIn() {
     document.getElementById('wt-signin-btn').style.display = 'none';
     const chip = document.getElementById('wt-signed-in-as');
     chip.style.display = '';
-    chip.textContent = '✅ ' + wtUserEmail;
-    chip.title = 'Signed in as ' + (wtUserName || wtUserEmail) + ' (click to sign out)';
+    chip.textContent = (wtUserName || wtUserEmail || '?').trim().charAt(0).toUpperCase();   // e.g. "L"
+    chip.title = (wtUserName ? wtUserName + '\n' : '') + wtUserEmail;                       // shown on hover
+    document.getElementById('wt-user-menu-email').textContent =
+      '✅ ' + (wtUserName ? wtUserName + ' · ' : '') + wtUserEmail;
   }
   function wtShowSignedOut() {
     const box = document.getElementById('wt-signin-btn');
@@ -5104,12 +5118,10 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     document.getElementById('wt-user-menu').style.display = 'none';
   }
 
-  // Sign-in ran out (about 1 hour): show a warning + Sign in button, and try to sign back in
+    // Sign-in ran out (about 1 hour): show the Sign in button + a pop-up, and try to sign back in
   function wtSignInExpired() {
     wtShowSignedOut();
-    const chip = document.getElementById('wt-signed-in-as');
-    chip.style.display = '';
-    chip.textContent = '⚠️ Sign-in expired';
+    wtFlash('⚠️ Sign-in expired. Please sign in again, then try again.', 6000);
     try { google.accounts.id.prompt(); } catch (e) {}
   }
 
