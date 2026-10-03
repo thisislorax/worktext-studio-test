@@ -4040,7 +4040,7 @@ function wtLocateTextAnnotation(ann) {
   if (ann.pageIndex != null && ann.pageIndex >= 0 && ann.pageIndex < iframes.length) order.push(ann.pageIndex);
   iframes.forEach((_, i) => { if (i !== ann.pageIndex) order.push(i); });
 
-  const rx = wtFlexRegexForQuote(quote);
+   const rx = wtFlexRegexForQuote(quote);
   if (rx) {
     for (const pi of order) {
       let iDoc; try { iDoc = iframes[pi].contentDocument; } catch (e) { continue; }
@@ -4050,7 +4050,7 @@ function wtLocateTextAnnotation(ann) {
       const matches = [];
       let m;
       while ((m = rx.exec(map.raw))) { matches.push(m); if (rx.lastIndex === m.index) rx.lastIndex++; }
-            if (matches.length) {
+      if (matches.length) {
         // The words saved just before and after the highlight (its "neighbors")
         const nbBefore = wtNorm(anchor.prefix || '').slice(-15);
         const nbAfter  = wtNorm(anchor.suffix || '').slice(0, 15);
@@ -4073,7 +4073,6 @@ function wtLocateTextAnnotation(ann) {
           return { status: 'found-exact', pageIndex: pi, iDoc, map, start: best.index, end: best.index + best[0].length };
         }
         // Every match on this page had the wrong neighbors: keep looking on the next page
-      }
       }
     }
   }
