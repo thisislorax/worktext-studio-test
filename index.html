@@ -5105,8 +5105,16 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     chip.style.display = '';
     chip.textContent = (wtUserName || wtUserEmail || '?').trim().charAt(0).toUpperCase();   // e.g. "L"
     chip.title = (wtUserName ? wtUserName + '\n' : '') + wtUserEmail;                       // shown on hover
-    document.getElementById('wt-user-menu-email').textContent =
-      '✅ ' + (wtUserName ? wtUserName + ' · ' : '') + wtUserEmail;
+        // Signed-in line in the menu: green check icon (same style as "Done") + name · email
+    const menuEmail = document.getElementById('wt-user-menu-email');
+    menuEmail.innerHTML =
+      '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" style="vertical-align:-3px;margin-right:6px;color:#8bb55a;">' +
+        '<circle cx="11" cy="13" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/>' +
+        '<path d="M7 13.2l3 3.3L20.5 4.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '</svg>';
+    const who = document.createElement('span');
+    who.textContent = (wtUserName ? wtUserName + ' · ' : '') + wtUserEmail;
+    menuEmail.appendChild(who);
   }
   function wtShowSignedOut() {
     const box = document.getElementById('wt-signin-btn');
