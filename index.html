@@ -3771,7 +3771,10 @@ async function wtCaptureImageAnchor(iDoc, ann) {
   if (!iDoc) return;
   try {
     const all = Array.from(iDoc.querySelectorAll('img'));
-    const same = all.filter(i => wtImgBasename(i.src) === ann.imgSrc);
+    // Match by the image's REAL filename (never changes), or by its current temporary address
+    const same = all.filter(i =>
+      (ann.imgFileName && i.getAttribute('data-wt-orig-src') === ann.imgFileName) ||
+      wtImgBasename(i.src) === ann.imgSrc);
     const img = same[ann.imgIndex] !== undefined ? same[ann.imgIndex] : same[0];
     if (!img) return;
     const hash = await wtHashImgEl(img);
@@ -4238,6 +4241,7 @@ async function wtReconcileImageAnnotation(ann) {
   if (exactMatch) {
     ann.pageIndex = exactMatch.pageIndex;
     ann.imgIndex  = exactMatch.idx;
+    ann.imgSrc    = wtImgBasename(exactMatch.img.src);     // remember its current address
     exactMatch.img.classList.add('wt-img-commented');
     exactMatch.img.setAttribute('data-ann-id', String(ann.id));
   } else if (anyBasenameFound && sameNameFirst) {
@@ -4247,6 +4251,7 @@ async function wtReconcileImageAnnotation(ann) {
     // content itself may have changed.
     ann.pageIndex = sameNameFirst.pageIndex;
     ann.imgIndex  = sameNameFirst.idx;
+    ann.imgSrc    = wtImgBasename(sameNameFirst.img.src);  // remember its current address
     sameNameFirst.img.classList.add('wt-img-commented');
     sameNameFirst.img.setAttribute('data-ann-id', String(ann.id));
   }
@@ -5246,7 +5251,13 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
         if (dragHandle && dragHandle.nextSibling) note.insertBefore(tag, dragHandle.nextSibling);
         else note.prepend(tag);
       }
-      tag.textContent = '📍 Moved from page ' + (ann.wtHomePage + 1) + ', please check';
+      tag.innerHTML =
+        '<svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true" style="vertical-align:-1px;margin-right:4px;">' +
+          '<path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.6A2.6 2.6 0 1 1 12 6.4a2.6 2.6 0 0 1 0 5.2z"/>' +
+        '</svg>';
+      const label = document.createElement('span');
+      label.textContent = 'Moved from page ' + (ann.wtHomePage + 1) + ', please check';
+      tag.appendChild(label);
     });
   }
 
