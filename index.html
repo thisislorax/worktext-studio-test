@@ -1169,7 +1169,7 @@
       <div class="toolbar-divider"></div>
       <div class="renderer-wrap">
         <label for="renderer-select">Renderer</label>
-        <select id="renderer-select">
+        <select id="renderer-select" autocomplete="off">
           <option value="ak">K-G3</option>
           <option value="g46">G4-G6</option>
           <option value="bible">Bible Subject</option>
@@ -1880,17 +1880,10 @@ document.getElementById('folder-input').addEventListener('change', async (e) => 
 });
 
 function autoDetectRenderer(name) {
-  const n = name.toUpperCase();
-  if (n.startsWith('TM-') || n.includes('-TM-')) {
-    document.getElementById('renderer-select').value = 'tm';
-    currentRenderer = 'tm';
-  } else if (n.startsWith('BIBLE-') || n.includes('-BIBLE-')) {
-    document.getElementById('renderer-select').value = 'bible';
-    currentRenderer = 'bible';
-  } else {
-    document.getElementById('renderer-select').value = 'ak';
-    currentRenderer = 'ak';
-  }
+  // The renderer is chosen ONLY by the user (the Renderer dropdown).
+  // Opening a file no longer changes it — just keep the current choice
+  // and make sure Studio uses exactly what the dropdown shows.
+  currentRenderer = document.getElementById('renderer-select').value;
   updateRendererStat();
 }
 
