@@ -4050,18 +4050,30 @@ function wtLocateTextAnnotation(ann) {
       const matches = [];
       let m;
       while ((m = rx.exec(map.raw))) { matches.push(m); if (rx.lastIndex === m.index) rx.lastIndex++; }
-      if (matches.length) {
-        let best = matches[0], bestScore = -1;
+            if (matches.length) {
+        // The words saved just before and after the highlight (its "neighbors")
+        const nbBefore = wtNorm(anchor.prefix || '').slice(-15);
+        const nbAfter  = wtNorm(anchor.suffix || '').slice(0, 15);
+        const knowsNeighbors = !!(nbBefore || nbAfter);
+        let best = null, bestScore = -1;
         matches.forEach((mm, occ) => {
-          let score = 0;
+          // Compare neighbors with spaces/line breaks tidied up (HTML indentation is ignored)
+          const before = wtNorm(map.raw.slice(Math.max(0, mm.index - 300), mm.index));
+          const after  = wtNorm(map.raw.slice(mm.index + mm[0].length, mm.index + mm[0].length + 300));
+          let neighbors = 0;
+          if (nbBefore && before.slice(-60).indexOf(nbBefore) !== -1) neighbors++;
+          if (nbAfter  && after.slice(0, 60).indexOf(nbAfter)  !== -1) neighbors++;
+          // NEW RULE: same word but different neighbors = a different spot. Skip it.
+          if (knowsNeighbors && neighbors === 0) return;
+          let score = neighbors;
           if (anchor.occurrence !== undefined && occ === anchor.occurrence) score += 2;
-          const before = map.raw.slice(Math.max(0, mm.index - 40), mm.index);
-          const after  = map.raw.slice(mm.index + mm[0].length, mm.index + mm[0].length + 40);
-          if (anchor.prefix && before.indexOf(anchor.prefix.slice(-15)) !== -1) score += 1;
-          if (anchor.suffix && after.indexOf(anchor.suffix.slice(0, 15)) !== -1) score += 1;
           if (score > bestScore) { bestScore = score; best = mm; }
         });
-        return { status: 'found-exact', pageIndex: pi, iDoc, map, start: best.index, end: best.index + best[0].length };
+        if (best) {
+          return { status: 'found-exact', pageIndex: pi, iDoc, map, start: best.index, end: best.index + best[0].length };
+        }
+        // Every match on this page had the wrong neighbors: keep looking on the next page
+      }
       }
     }
   }
@@ -4879,7 +4891,7 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
       if (!document.getElementById('wrapper-' + hint)) hint = 0;   // page no longer exists: start at page 1
 
       const ann = {
-        id: ++annotIdSeq, pageIndex: hint,
+                id: ++annotIdSeq, pageIndex: hint, wtHomePage: hint,
         type: c.type === 'image' ? 'image' : 'text',
         x: WT_GUTTER_X, y: 60,
         text: String(c.text || ''), time: c.created_at || new Date().toISOString(), collapsed: false,
@@ -4956,11 +4968,12 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
   })();
 
     // Shared notes get name + thread; not-shared notes get a small label (only when signed in)
-  function wtDecorateAllNotes() {
+    function wtDecorateAllNotes() {
     annotations.forEach(ann => {
       if (ann.backendId) wtDecorateNote(ann);
       else if (ann.notShared && wtIdToken) wtLabelLocalNote(ann);
     });
+    wtMarkMovedNotes();        // ← NEW
   }
 
     // Build (or rebuild) the name header + thread area for ONE note
@@ -5197,7 +5210,10 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
   const _wtOrigRestoreAnnotations = window.restoreAnnotations;
   window.restoreAnnotations = function(data) {
     _wtOrigRestoreAnnotations(data);
-    annotations.forEach(a => { if (!a.backendId) a.notShared = true; });
+        annotations.forEach(a => {
+      if (!a.backendId) a.notShared = true;
+      a.wtHomePage = a.pageIndex;        // the page saved in the file = its home page
+    });
   };
 
   // START: set up Google sign-in, then follow the remembered choice
@@ -5215,8 +5231,26 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     // choice === 'no': do nothing, Studio works without signing in
   });
 
+    // "📍 Moved from page X, please check": shown when a note ends up on a different page than its home page
+  function wtMarkMovedNotes() {
+    annotations.forEach(ann => {
+      if (ann.wtHomePage == null) ann.wtHomePage = ann.pageIndex;   // brand-new notes: where they were made
+      const note = document.getElementById('ann-' + ann.id);
+      if (!note) return;
+      let tag = note.querySelector('.wt-moved');
+      if (ann.pageIndex === ann.wtHomePage) { if (tag) tag.remove(); return; }
+      if (!tag) {
+        tag = document.createElement('div');
+        tag.className = 'wt-moved';
+        tag.style.cssText = 'font-family:Montserrat,sans-serif;font-size:10px;font-weight:600;color:#e65100;background:#fff3e0;border-radius:6px;padding:2px 6px;margin:0 0 4px;display:inline-block;';
+        const dragHandle = note.querySelector('.note-drag-handle');
+        if (dragHandle && dragHandle.nextSibling) note.insertBefore(tag, dragHandle.nextSibling);
+        else note.prepend(tag);
+      }
+      tag.textContent = '📍 Moved from page ' + (ann.wtHomePage + 1) + ', please check';
+    });
+  }
+
 </script>
-
-
 </body>
 </html>
