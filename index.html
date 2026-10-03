@@ -4919,8 +4919,10 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
       .wt-thread-time { color:#999; font-size:9px; margin-top:2px; }
       .wt-thread-input { width:100%; box-sizing:border-box; margin-top:4px; padding:4px 6px; font-size:10.5px; border:1px solid rgba(128,128,128,.4); border-radius:6px; background:transparent; color:inherit; font-family:inherit; }
       .wt-thread-btn { margin-top:4px; font-size:10px; padding:2px 8px; border-radius:10px; border:1px solid rgba(128,128,128,.5); background:transparent; color:inherit; cursor:pointer; font-family:inherit; }
-      .wt-annotation.wt-resolved { opacity:.5; }
-      .wt-annotation.wt-resolved:hover { opacity:.95; }
+      .wt-done-btn { display:inline-flex; align-items:center; gap:5px; margin-top:6px; padding:2px 4px; border:none; background:transparent; color:#d7486f; cursor:pointer; font-family:inherit; font-size:11px; font-weight:700; }
+      .wt-done-btn svg { width:18px; height:18px; flex-shrink:0; }
+      .wt-done-btn.is-done { color:#8bb55a; }
+      .wt-done-btn:disabled { opacity:.5; cursor:wait; }
       .wt-annotation.collapsed .wt-thread { display:none; }
     `;
     document.head.appendChild(s);
@@ -4968,14 +4970,6 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     thread.className = 'wt-thread';
     thread.addEventListener('mousedown', e => e.stopPropagation());
 
-    // Resolved line (only when resolved)
-    if (resolved) {
-      const by = document.createElement('div');
-      by.className = 'wt-thread-by';
-      by.textContent = '✓ Resolved by ' + wtNameFor(ann.backendResolvedBy);
-      thread.appendChild(by);
-    }
-
     // Replies (textContent only: other people's text is never treated as code)
     (wtReplies[ann.backendId] || []).forEach(r => {
       const row  = document.createElement('div');
@@ -5017,10 +5011,18 @@ function wtExtractGoogleDocEmbedUrl(rawLink) {
     });
     thread.appendChild(input);
 
-    // Resolve / Reopen (anyone can)
+        // DONE button (anyone can). The Sheet still stores 'resolved' / 'open'.
+    // Pink = not done yet, green = done. Click again to undo.
     const btn = document.createElement('button');
-    btn.className = 'wt-thread-btn';
-    btn.textContent = resolved ? '↺ Reopen' : '✓ Resolve';
+    btn.className = 'wt-done-btn' + (resolved ? ' is-done' : '');
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<circle cx="11" cy="13" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/>' +
+        '<path d="M7 13.2l3 3.3L20.5 4.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '</svg><span>Done</span>';
+    btn.title = resolved
+      ? 'Marked done by ' + wtNameFor(ann.backendResolvedBy) + ' (click to undo)'
+      : 'Mark as done';
     btn.addEventListener('click', async e => {
       e.stopPropagation();
       btn.disabled = true;
